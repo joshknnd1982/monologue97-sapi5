@@ -1,0 +1,79 @@
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+// The dialog is laid out strictly in reading order so that the tab order and
+// the visual order agree, and every control is immediately preceded by its own
+// label: a screen reader takes an edit box's accessible name from the static
+// text before it in the tab order, so the labels are real controls rather than
+// painted text.
+//
+// Numbers use an edit box with a spin button rather than a trackbar on
+// purpose. MSAA reports a trackbar's position as a *percentage of its range*,
+// so a control showing 5 can be announced as "55", which makes the value
+// unusable by ear. An edit box announces the digits actually shown.
+
+IDD_CONFIG DIALOGEX 0, 0, 340, 300
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+CAPTION "Monologue 97 Speech Settings"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Voice:", IDC_VOICE_LABEL, 8, 10, 60, 8
+    COMBOBOX        IDC_VOICE, 72, 8, 180, 200,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    GROUPBOX        "Speech parameters (0 % = minimum, 100 % = maximum)",
+                    -1, 8, 30, 324, 108
+
+    LTEXT           "&Speed (percent):", -1, 16, 46, 110, 8
+    EDITTEXT        IDC_NUM_EDIT, 130, 44, 44, 14, ES_AUTOHSCROLL | ES_NUMBER | WS_TABSTOP
+    CONTROL         "", IDC_NUM_EDIT+1, UPDOWN_CLASS, UDS_SETBUDDYINT |
+                    UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    0, 0, 12, 14
+
+    LTEXT           "&Pitch (percent):", -1, 190, 46, 100, 8
+    EDITTEXT        IDC_NUM_EDIT+2, 288, 44, 44, 14, ES_AUTOHSCROLL | ES_NUMBER | WS_TABSTOP
+    CONTROL         "", IDC_NUM_EDIT+3, UPDOWN_CLASS, UDS_SETBUDDYINT |
+                    UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    0, 0, 12, 14
+
+    LTEXT           "V&olume (percent):", -1, 16, 66, 110, 8
+    EDITTEXT        IDC_NUM_EDIT+4, 130, 64, 44, 14, ES_AUTOHSCROLL | ES_NUMBER | WS_TABSTOP
+    CONTROL         "", IDC_NUM_EDIT+5, UPDOWN_CLASS, UDS_SETBUDDYINT |
+                    UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    0, 0, 12, 14
+
+    LTEXT           "&Brightness (percent):", -1, 190, 66, 100, 8
+    EDITTEXT        IDC_NUM_EDIT+6, 288, 64, 44, 14, ES_AUTOHSCROLL | ES_NUMBER | WS_TABSTOP
+    CONTROL         "", IDC_NUM_EDIT+7, UPDOWN_CLASS, UDS_SETBUDDYINT |
+                    UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    0, 0, 12, 14
+
+    LTEXT           "&Emphasis (percent):", -1, 16, 86, 110, 8
+    EDITTEXT        IDC_NUM_EDIT+8, 130, 84, 44, 14, ES_AUTOHSCROLL | ES_NUMBER | WS_TABSTOP
+    CONTROL         "", IDC_NUM_EDIT+9, UPDOWN_CLASS, UDS_SETBUDDYINT |
+                    UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,
+                    0, 0, 12, 14
+
+    AUTOCHECKBOX    "&Nasal", IDC_CHK_FIRST,   16, 106, 56, 10, WS_TABSTOP
+    AUTOCHECKBOX    "Oral (&head cold)", IDC_CHK_FIRST+1, 76, 106, 76, 10, WS_TABSTOP
+    AUTOCHECKBOX    "B&reathy", IDC_CHK_FIRST+2, 158, 106, 52, 10, WS_TABSTOP
+    AUTOCHECKBOX    "&Whispery", IDC_CHK_FIRST+3, 214, 106, 56, 10, WS_TABSTOP
+    AUTOCHECKBOX    "&Creaky", IDC_CHK_FIRST+4, 274, 106, 52, 10, WS_TABSTOP
+
+    LTEXT           "&Test text:", -1, 8, 150, 60, 8
+    EDITTEXT        IDC_TESTTEXT, 8, 162, 324, 40,
+                    ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_TABSTOP
+
+    PUSHBUTTON      "&Speak test", IDC_TEST, 8, 210, 70, 16, WS_TABSTOP
+    PUSHBUTTON      "S&top", IDC_STOP, 84, 210, 50, 16, WS_TABSTOP
+    PUSHBUTTON      "Restore &defaults", IDC_DEFAULTS, 140, 210, 90, 16, WS_TABSTOP
+    PUSHBUTTON      "Open &log folder", IDC_LOGS, 236, 210, 96, 16, WS_TABSTOP
+
+    LTEXT           "Ready.", IDC_STATUS, 8, 236, 324, 18
+
+    DEFPUSHBUTTON   "Save && close", IDOK, 176, 262, 74, 18, WS_TABSTOP
+    PUSHBUTTON      "Cancel", IDCANCEL, 258, 262, 74, 18, WS_TABSTOP
+END
+
+IDI_APPICON ICON "app.ico"

@@ -1,0 +1,38 @@
+#include <windows.h>
+#include "mono_version.h"
+
+#ifndef MONO_FILE_DESC
+#define MONO_FILE_DESC "Monologue 97 SAPI5 component"
+#endif
+#ifndef MONO_FILE_NAME
+#define MONO_FILE_NAME "monologue97"
+#endif
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    MONO_VER_COMMA
+PRODUCTVERSION MONO_VER_COMMA
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_DLL
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      MONO_COMPANY
+            VALUE "FileDescription",  MONO_FILE_DESC
+            VALUE "FileVersion",      MONO_VER_STRING
+            VALUE "InternalName",     MONO_FILE_NAME
+            VALUE "LegalCopyright",   MONO_COPYRIGHT
+            VALUE "OriginalFilename", MONO_FILE_NAME
+            VALUE "ProductName",      MONO_PRODUCT
+            VALUE "ProductVersion",   MONO_VER_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
