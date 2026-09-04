@@ -50,3 +50,7 @@ tools/*.exe
 
 # The samples zip is a release asset; the individual WAVs are tracked instead.
 samples/*.zip
+
+# Scratch output directories from ad-hoc test runs
+out/
+out_final/

@@ -387,6 +387,13 @@ the checks can be re-run without a compiler. Each exits non-zero on failure.
 
 ## Version history
 
+### 1.4.1 — run straight from a clone
+
+The helper looked for the speech engine beside itself and in its own directory,
+but not one level up, so the binaries in `prebuilt/` could not find `engine/`
+in a fresh clone. It now searches all three, as the configuration utility
+already did.
+
 ### 1.4.0 — capital letters, and binaries in the repository
 
 Arrowing across capitals announced the wrong thing, and only for some letters:

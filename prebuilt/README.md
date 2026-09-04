@@ -19,9 +19,10 @@ so the repository is self-contained.
 | `mono_host.exe` | The 32-bit helper that owns the speech engine. Both DLLs drive this one process. |
 | `Monologue97Config.exe` | The configuration utility. |
 
-These expect the speech engine in an `engine` folder beside them — the one in
-[`../engine`](../engine). `mono_host.exe` and `Monologue97Config.exe` also look
-one directory up, so the layout the installer creates works too.
+These find the speech engine by looking for `engine\mnvox11.dll` beside
+themselves (the layout the installer creates), then one directory up — which is
+[`../engine`](../engine) here — so they run straight from a clone with nothing
+to copy.
 
 ## Registering by hand
 

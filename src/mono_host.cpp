@@ -262,10 +262,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   std::wstring dir(exe);
   size_t slash = dir.find_last_of(L'\\');
   if (slash != std::wstring::npos) dir.resize(slash);
-  std::wstring engdir = dir + L"\\engine";
-  if (GetFileAttributesW((engdir + L"\\mnvox11.dll").c_str()) ==
-      INVALID_FILE_ATTRIBUTES)
-    engdir = dir;  // running from a build tree
+  // Look for the engine beside the helper (the installed layout), then one
+  // directory up (a clone, where the binaries live in prebuilt\ and the engine
+  // in engine\), then in the helper's own directory (a build tree). The
+  // configuration utility searches the same places, so both work from wherever
+  // they are run.
+  std::wstring parent = dir;
+  const size_t up = parent.find_last_of(L'\\');
+  if (up != std::wstring::npos) parent.resize(up);
+  const std::wstring candidates[] = {dir + L"\\engine", parent + L"\\engine",
+                                     dir};
+  std::wstring engdir = dir;
+  for (size_t i = 0; i < sizeof candidates / sizeof candidates[0]; i++) {
+    if (GetFileAttributesW((candidates[i] + L"\\mnvox11.dll").c_str()) !=
+        INVALID_FILE_ATTRIBUTES) {
+      engdir = candidates[i];
+      break;
+    }
+  }
   MONO_LOG("engine directory: %ls", engdir.c_str());
 
   // Only one helper at a time: a second one would race for the pipe name.
