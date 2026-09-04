@@ -52,6 +52,13 @@ add_executable(loopback tools/loopback.cpp)
 target_link_libraries(loopback PRIVATE ole32 oleaut32 sapi user32)
 set_target_properties(loopback PROPERTIES OUTPUT_NAME "loopback_${MONO_ARCH}")
 
+# Character-navigation regression: NVDA speaks single characters through
+# <spell>, which arrives as SPVA_SpellOut, not SPVA_Speak.
+add_executable(spell_test tools/spell_test.cpp)
+target_link_libraries(spell_test PRIVATE ole32 oleaut32 sapi user32 advapi32)
+set_target_properties(spell_test PROPERTIES
+  OUTPUT_NAME "spell_test_${MONO_ARCH}")
+
 # --- end-to-end SAPI test harness (both architectures) ---------------------
 add_executable(sapi_test tools/sapi_test.cpp)
 target_link_libraries(sapi_test PRIVATE ole32 oleaut32 sapi user32 advapi32)

@@ -46,18 +46,46 @@ static unsigned long long wav_hash(const wchar_t *path) {
 }
 
 // Peak amplitude of a 16-bit PCM wav, so silence is reported as a failure.
+// The 'data' chunk is found by walking the RIFF chunks: SAPI writes an 18-byte
+// fmt chunk, so the header is 46 bytes and the usual "skip 44" would read two
+// header bytes as audio and make a silent file look loud.
 static int wav_peak(const wchar_t *path) {
   FILE *f = _wfopen(path, L"rb");
   if (!f) return -1;
-  fseek(f, 44, SEEK_SET);
+  char riff[12];
+  if (fread(riff, 1, 12, f) != 12 || memcmp(riff, "RIFF", 4) ||
+      memcmp(riff + 8, "WAVE", 4)) {
+    fclose(f);
+    return -1;
+  }
+  long data_len = -1;
+  for (;;) {
+    char id[4];
+    unsigned int sz = 0;
+    if (fread(id, 1, 4, f) != 4 || fread(&sz, 4, 1, f) != 1) break;
+    if (!memcmp(id, "data", 4)) {
+      data_len = (long)sz;
+      break;
+    }
+    fseek(f, (long)sz + (sz & 1), SEEK_CUR);
+  }
+  if (data_len < 0) {
+    fclose(f);
+    return -1;
+  }
   int peak = 0;
+  long left = data_len;
   short buf[4096];
-  size_t n;
-  while ((n = fread(buf, sizeof(short), 4096, f)) > 0)
-    for (size_t i = 0; i < n; i++) {
+  while (left > 0) {
+    size_t want = (size_t)(left < (long)sizeof buf ? left : (long)sizeof buf);
+    size_t got = fread(buf, 1, want, f);
+    if (!got) break;
+    for (size_t i = 0; i < got / sizeof(short); i++) {
       int v = buf[i] < 0 ? -(int)buf[i] : (int)buf[i];
       if (v > peak) peak = v;
     }
+    left -= (long)got;
+  }
   fclose(f);
   return peak;
 }

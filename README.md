@@ -169,6 +169,37 @@ helper as well costs one process hop but buys the thing that matters most for a
 screen-reader voice: **a fault or a modal dialog inside 1997 code can no longer
 take down the screen reader hosting it.**
 
+### Reading one character at a time
+
+Two separate things have to be right for arrowing character by character to
+work, and both are easy to get wrong in a way that no ordinary test notices.
+
+**NVDA does not send character navigation as plain speech.** It wraps the
+character in `<spell>…</spell>` with `SPF_IS_XML`, which SAPI delivers as a text
+fragment whose `State.eAction` is `SPVA_SpellOut` — *not* `SPVA_Speak`. An
+engine that skips everything except `SPVA_Speak` (a reasonable-looking way to
+avoid speaking bookmark fragments aloud) silently drops every letter and every
+punctuation mark the user arrows over, while sentences keep working perfectly.
+
+**Twenty printable characters render as pure silence in this engine:**
+
+```
+space  !  "  '  (  )  ,  -  .  /  :  ;  ?  [  \  ]  ^  {  |  }
+```
+
+Handing any of those to the engine produces zero samples, so every ASCII symbol
+is given an explicit spoken name in the SAPI layer instead — `.` becomes "dot",
+`,` "comma", `-` "dash", `(` "left paren", and so on. That also makes the
+announcement identical whatever symbol level the screen reader is set to.
+
+One case genuinely cannot be fixed here: a **whitespace-only utterance** is
+stripped by SAPI itself, which hands the engine a fragment of length zero, so no
+SAPI5 voice can speak it. NVDA does not depend on that — it substitutes the word
+"space" before speaking.
+
+`tools/spell_test.cpp` drives the real SAPI stack exactly as NVDA does and fails
+if any character produces no audio.
+
 ### Latency
 
 Measured with `QueryPerformanceCounter` and with WASAPI loopback capture of the

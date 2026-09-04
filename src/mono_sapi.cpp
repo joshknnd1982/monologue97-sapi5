@@ -41,6 +41,71 @@ namespace {
 // awkward rate for a 48 kHz endpoint: it made no difference (88-94 ms mean and
 // 95-112 ms worst either way, across repeated runs), so the resampler was not
 // worth shipping.
+// --- speaking single characters -------------------------------------------
+//
+// Twenty printable characters render as *pure silence* in this engine --
+// space ! " ' ( ) , - . / : ; ? [ \ ] ^ { | } -- so arrowing onto one of them
+// says nothing at all. Every ASCII symbol therefore gets an explicit spoken
+// name, which also makes the announcement the same whichever symbol level the
+// screen reader is set to.
+const char *symbol_name(char c) {
+  switch (c) {
+    case ' ':  return "space";
+    case '\t': return "tab";
+    case '\r':
+    case '\n': return "new line";
+    case '!':  return "exclamation";
+    case '"':  return "quote";
+    case '#':  return "number";
+    case '$':  return "dollar";
+    case '%':  return "percent";
+    case '&':  return "and";
+    case '\'': return "apostrophe";
+    case '(':  return "left paren";
+    case ')':  return "right paren";
+    case '*':  return "star";
+    case '+':  return "plus";
+    case ',':  return "comma";
+    case '-':  return "dash";
+    case '.':  return "dot";
+    case '/':  return "slash";
+    case ':':  return "colon";
+    case ';':  return "semicolon";
+    case '<':  return "less than";
+    case '=':  return "equals";
+    case '>':  return "greater than";
+    case '?':  return "question";
+    case '@':  return "at";
+    case '[':  return "left bracket";
+    case '\\': return "backslash";
+    case ']':  return "right bracket";
+    case '^':  return "caret";
+    case '_':  return "underline";
+    case '`':  return "backtick";
+    case '{':  return "left brace";
+    case '|':  return "bar";
+    case '}':  return "right brace";
+    case '~':  return "tilde";
+    default:   return nullptr;  // letters and digits speak for themselves
+  }
+}
+
+// SPVA_SpellOut: say the text one character at a time. NVDA wraps character
+// navigation in <spell>...</spell>, which SAPI delivers as this action.
+std::string spell_out(const std::string &text) {
+  std::string out;
+  for (size_t i = 0; i < text.size(); i++) {
+    const char c = text[i];
+    if (!out.empty()) out += ' ';
+    const char *nm = symbol_name(c);
+    if (nm)
+      out += nm;
+    else
+      out += c;
+  }
+  return out;
+}
+
 std::string narrow_ansi(const std::wstring &w) {
   if (w.empty()) return std::string();
   int n = WideCharToMultiByte(CP_ACP, 0, w.c_str(), (int)w.size(), nullptr, 0,
@@ -247,15 +312,32 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
   for (const SPVTEXTFRAG *f = pFrags; f; f = f->pNext) {
     if (pSite->GetActions() & SPVES_ABORT) break;
 
-    // Only real text is spoken. Bookmarks and other non-speech fragments carry
-    // text too, and speaking them makes the engine read a screen reader's
-    // internal bookmark numbers out loud.
-    if (f->State.eAction != SPVA_Speak) continue;
+    // Bookmarks and other non-speech fragments carry text too, and speaking
+    // those makes the engine read a screen reader's internal bookmark numbers
+    // out loud -- but SPVA_SpellOut *is* speech. NVDA wraps character-by-
+    // character navigation in <spell>...</spell>, so treating anything that is
+    // not SPVA_Speak as non-speech silently drops every letter and every
+    // punctuation mark the user arrows over.
+    const bool spell = (f->State.eAction == SPVA_SpellOut);
+    if (f->State.eAction != SPVA_Speak && !spell) continue;
     if (!f->pTextStart || f->ulTextLen == 0) continue;
 
     std::wstring w(f->pTextStart, f->ulTextLen);
     std::string ansi = narrow_ansi(w);
-    if (ansi.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+
+    if (spell) {
+      ansi = spell_out(ansi);
+    } else if (ansi.size() == 1 && symbol_name(ansi[0])) {
+      // A fragment that is a single symbol only ever reaches us because
+      // something is reading one character out, so name it -- the engine
+      // renders it as silence otherwise. This has to come *before* the
+      // whitespace test below, or arrowing onto a space says nothing.
+      ansi = symbol_name(ansi[0]);
+    } else if (ansi.find_first_not_of(" \t\r\n") == std::string::npos) {
+      // Whitespace between words is a gap, not something to announce.
+      continue;
+    }
+    if (ansi.empty()) continue;
 
     if (!client_.speak(font, params, ansi, &MonologueEngine::sink, &st, &err)) {
       MONO_LOG("speak failed: %s", err.c_str());

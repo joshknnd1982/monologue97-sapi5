@@ -74,10 +74,14 @@ int main(int argc, char **argv) {
       }
       continue;
     }
-    if (g_samples == 0)
+    if (g_samples == 0) {
       empty++;
-    else
+      // Which characters the engine renders as pure silence matters: arrowing
+      // over one of them means the user hears nothing at all.
+      if (c < 0x7F) printf("  silent: 0x%02X '%c'\n", c, (char)c);
+    } else {
       spoke++;
+    }
   }
 
   // Strings that mix the awkward cases, as a real line of text would.
@@ -108,5 +112,9 @@ int main(int argc, char **argv) {
 
   printf("\n%d characters spoke, %d produced no audio, %d failures\n", spoke,
          empty, crashes);
+  printf("(This measures the raw engine. The characters listed as silent above\n"
+         " are given spoken names by the SAPI layer -- see symbol_name() in\n"
+         " mono_sapi.cpp and tools/spell_test.cpp, which covers what a user\n"
+         " actually hears when arrowing over them.)\n");
   return crashes ? 3 : 0;
 }
