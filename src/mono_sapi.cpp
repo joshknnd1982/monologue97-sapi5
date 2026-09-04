@@ -90,6 +90,17 @@ const char *symbol_name(char c) {
   }
 }
 
+// A lone capital that is also a Roman numeral is read by the engine's text
+// analysis as a *number*: C becomes "one hundred", D "five hundred", L "fifty",
+// M "one thousand", V "five". Arrowing across capitals therefore announced the
+// wrong thing entirely, and only for those letters. The lower-case form of
+// every letter is spoken as the letter, so single letters are lower-cased on
+// the way to the engine. Nothing is lost: a screen reader indicates capitals
+// itself, NVDA by raising the pitch for that fragment.
+char letter_for_speech(char c) {
+  return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
 // SPVA_SpellOut: say the text one character at a time. NVDA wraps character
 // navigation in <spell>...</spell>, which SAPI delivers as this action.
 std::string spell_out(const std::string &text) {
@@ -101,7 +112,7 @@ std::string spell_out(const std::string &text) {
     if (nm)
       out += nm;
     else
-      out += c;
+      out += letter_for_speech(c);
   }
   return out;
 }
@@ -351,6 +362,11 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
       // renders it as silence otherwise. This has to come *before* the
       // whitespace test below, or arrowing onto a space says nothing.
       ansi = symbol_name(ansi[0]);
+    } else if (ansi.size() == 1) {
+      // Likewise a single letter: a host that reads characters out without
+      // using <spell> would otherwise hit the Roman-numeral reading of a lone
+      // capital.
+      ansi[0] = letter_for_speech(ansi[0]);
     } else if (ansi.find_first_not_of(" \t\r\n") == std::string::npos) {
       // Whitespace between words is a gap, not something to announce.
       continue;

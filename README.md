@@ -326,6 +326,28 @@ button.
 
 ---
 
+## What is in this repository
+
+A clone gives you everything — sources, the speech engine, working binaries and
+the rendered samples. Nothing has to be downloaded separately except the
+installer itself.
+
+| | |
+| --- | --- |
+| [`src/`](src) | The SAPI5 engine, the 32-bit helper and the shared engine wrapper. |
+| [`config/`](config) | The configuration utility. |
+| [`engine/`](engine) | The 1997 speech engine: `mnvox11.dll`, the 21 speech fonts in `SF\`, and the dictionaries. |
+| [`prebuilt/`](prebuilt) | Ready-to-run binaries for both architectures, plus the verification tools. See [prebuilt/README.md](prebuilt/README.md). |
+| [`samples/`](samples) | 49 rendered WAVs: every voice, every parameter at 0/50/100 %, and combinations. |
+| [`tools/`](tools) | Verification and measurement sources, and the reverse-engineering probes. |
+| [`installer/`](installer) | The Inno Setup script. |
+
+The compiled installer is not in the repository — it is published on the
+[Releases](https://github.com/joshknnd1982/monologue97-sapi5/releases) page.
+Neither is the original Monologue '97 CD image: `SETUP.EXE`, the
+electronic-registration tool and the compressed archives are not needed to build
+or run anything here, and `engine/` already holds the parts that are.
+
 ## Building from source
 
 Requires Visual Studio 2022 Build Tools (C++, x86 and x64), CMake, and
@@ -336,37 +358,109 @@ build_all.bat
 ```
 
 builds both architectures, stages `output\`, and compiles the installer into
-`dist\`.
-
-**The engine files are not in this repository.** `mnvox11.dll`, `SF\*.DLL` and
-the dictionaries are First Byte's copyrighted work, redistributed only in the
-Releases installer. To build a working installer yourself, populate `engine\`
-from a Monologue '97 CD:
-
-```
-engine\mnvox11.dll          from  TTS\mnvox11.dll
-engine\SF\*.DLL             from  SF\
-engine\SF\ENPBKERN.DIC      from  SF\
-engine\USA.DIC              from  the CD root
-engine\CDSF.INI             from  the CD root
-```
+`dist\`. The engine files it needs are already in `engine\`.
 
 ### Verifying
 
-- `make_samples.exe <engine-dir> <out-dir>` — renders every voice and every
-  parameter extreme to WAV, and fails on a silent render.
-- `sapi_test_x86.exe` / `sapi_test_x64.exe` — registers the DLL per-user, drives
-  the **real SAPI stack** through every voice, and fails if two voices render
-  identically (which is what happens when the token's speech font never reaches
-  the engine).
-- `a11y_check.exe` — walks the configuration utility's MSAA tree and fails if any
+Prebuilt copies of all of these are in [`prebuilt/tools`](prebuilt/tools), so
+the checks can be re-run without a compiler. Each exits non-zero on failure.
+
+- `prosody_test` — sweeps pitch, rate and volume through the real SAPI stack and
+  measures the **rendered audio**: F0 for pitch, duration for rate, peak for
+  volume. Pitch is swept one step at a time, because a coarse check cannot tell
+  "works but saturates" apart from "does nothing".
+- `spell_test` — drives character-by-character navigation the way NVDA does
+  (`<spell>` markup, which arrives as `SPVA_SpellOut`) and fails if any
+  character is silent.
+- `sapi_test` — drives every voice through real SAPI, and fails if two voices
+  render *identically* — which is what happens when a token's speech font never
+  reaches the engine, while every voice still "works".
+- `charfuzz` — speaks every byte 0x20–0xFF through the helper to prove none of
+  them can kill it. A helper crash would silently cost a process relaunch on the
+  next keystroke, which is exactly what intermittent lag looks like.
+- `a11y_check` — walks the configuration utility's MSAA tree and fails if any
   control is unreachable by Tab or has no accessible name.
+- `bench`, `loopback` — latency, the second via WASAPI loopback capture of the
+  real endpoint.
+- `make_samples` — renders every voice and parameter extreme, failing on a
+  silent render.
+
+## Version history
+
+### 1.4.0 — capital letters, and binaries in the repository
+
+Arrowing across capitals announced the wrong thing, and only for some letters:
+`C` was read as "one hundred", `D` as "five hundred", `L` "fifty", `M` "one
+thousand", `V` "five". Those are exactly the Roman numerals — the engine's text
+analysis reads a lone capital numeral as a *number*. The lower-case form of
+every letter is spoken as the letter, so single letters are now lower-cased on
+the way to the engine. Nothing is lost: a screen reader indicates capitals
+itself, NVDA by raising the pitch for that fragment.
+
+Measured across all 26 letters, upper against lower: `D` was 3.26× longer before
+the fix, `C` 2.65×, `M` 2.36×, `L` 1.83×, `V` 1.52×. All 26 are now identical.
+
+This release also puts the engine, the built binaries and the rendered samples
+in the repository, so a clone is self-contained.
+
+### 1.3.0 — pitch
+
+Pitch did nothing when adjusted from NVDA or any other SAPI5 application. SAPI
+has no `ISpTTSEngineSite::GetPitch`: pitch arrives *only* per fragment as
+`State.PitchAdj.MiddleAdj`, so reading the rate and volume getters moved those
+two perfectly and ignored pitch entirely. `<rate>` and `<volume>` tags were
+being dropped for the same reason — invisible under NVDA, which sets those
+through the voice properties, but broken for other hosts.
+
+Measuring then showed a second problem: pitch was published as the range the
+engine *accepts* (−5…15), but it only *responds* between 0 and 10, leaving half
+of a host's slider inert. Now 0–10, so the whole slider works.
+
+*Before: 118.5 Hz at every pitch setting. After: 76 → 200 Hz over 11 distinct
+levels.*
+
+### 1.2.0 — character navigation
+
+Arrowing character by character said nothing at all, while sentences worked
+perfectly. NVDA wraps character navigation in `<spell>…</spell>`, which SAPI
+delivers as `SPVA_SpellOut` rather than `SPVA_Speak`; the engine skipped
+everything that was not `SPVA_Speak` and so dropped every letter and punctuation
+mark. Separately, twenty printable characters render as pure silence in this
+engine, so every ASCII symbol now gets an explicit spoken name.
+
+Also fixed a test that had been hiding this: the harness assumed WAV audio
+starts at byte 44, but SAPI writes an 18-byte `fmt` chunk, so a silent render
+was reporting a healthy peak and passing.
+
+### 1.1.0 — latency
+
+Every utterance carries ~55 ms of silence before the first phoneme and 40–55 ms
+after the last. Invisible in a sentence; more than half the audio when a screen
+reader speaks one character per keystroke. A silence gate now trims the padding
+while keeping pauses between words — `"a"` went from 190 ms to 110 ms. The
+helper and its engine thread also run above normal priority.
+
+Measured with QPC and WASAPI loopback: keypress to audible sound is ~90 ms, of
+which about 4 ms belongs to this project and the rest to the Windows audio
+stack.
+
+### 1.0.0 — first release
+
+21 voices plus a configurable Custom Voice, 32- and 64-bit, no SAPI4.
 
 ---
 
 ## Licence
 
-The wrapper is MIT. The engine files are Copyright © 1997 First Byte and are
-redistributed as abandonware for preservation and accessibility use. See
-[LICENSE.txt](LICENSE.txt) — including how to ask for their removal if you hold
-those rights.
+The wrapper — everything under `src/`, `config/`, `tools/` and `installer/` — is
+MIT.
+
+The engine files in [`engine/`](engine) are **not** covered by that and are not
+this project's work. They are Monologue '97 (PrimoVOX), Copyright © 1997 First
+Byte, a division of Davidson & Associates, redistributed as abandonware for
+preservation and accessibility use: the product has been unsold and unsupported
+for decades, its speech patents expired long ago, and no rights holder has been
+locatable.
+
+See [LICENSE.txt](LICENSE.txt) for the full terms — including how to ask for the
+engine files to be removed if you hold those rights.

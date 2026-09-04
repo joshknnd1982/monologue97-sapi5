@@ -119,6 +119,49 @@ static void speak_to_file(ISpVoice *voice, const std::wstring &xml,
   }
 }
 
+// Speak one utterance and report how many samples came back, for comparing
+// what the engine makes of two spellings of the same character.
+static long render_frames(ISpVoice *voice, const std::wstring &xml,
+                          const std::wstring &path) {
+  DeleteFileW(path.c_str());
+  WAVEFORMATEX wfx;
+  memset(&wfx, 0, sizeof wfx);
+  wfx.wFormatTag = WAVE_FORMAT_PCM;
+  wfx.nChannels = 1;
+  wfx.nSamplesPerSec = 11025;
+  wfx.wBitsPerSample = 16;
+  wfx.nBlockAlign = 2;
+  wfx.nAvgBytesPerSec = 11025 * 2;
+  ISpStream *stream = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_SpStream, nullptr, CLSCTX_ALL,
+                              IID_ISpStream, (void **)&stream)) ||
+      FAILED(stream->BindToFile(path.c_str(), SPFM_CREATE_ALWAYS,
+                                &SPDFID_WaveFormatEx, &wfx,
+                                SPFEI_ALL_EVENTS))) {
+    if (stream) stream->Release();
+    return -1;
+  }
+  voice->SetOutput(stream, TRUE);
+  voice->Speak(xml.c_str(), SPF_IS_XML, nullptr);
+  stream->Close();
+  stream->Release();
+
+  FILE *f = _wfopen(path.c_str(), L"rb");
+  if (!f) return -1;
+  char riff[12];
+  if (fread(riff, 1, 12, f) != 12) { fclose(f); return -1; }
+  long data_len = -1;
+  for (;;) {
+    char id[4];
+    unsigned int sz = 0;
+    if (fread(id, 1, 4, f) != 4 || fread(&sz, 4, 1, f) != 1) break;
+    if (!memcmp(id, "data", 4)) { data_len = (long)sz; break; }
+    fseek(f, (long)sz + (sz & 1), SEEK_CUR);
+  }
+  fclose(f);
+  return data_len < 0 ? -1 : data_len / 2;
+}
+
 int wmain(int argc, wchar_t **argv) {
   if (argc < 2) {
     printf("usage: spell_test <monologue_sapi_ARCH.dll> [outdir]\n");
@@ -197,6 +240,39 @@ int wmain(int argc, wchar_t **argv) {
   printf("\n--- multi-character spelling ---\n");
   speak_to_file(voice, L"<spell>cat</spell>", outdir + L"\\spell-word.wav",
                 "spell \"cat\"");
+
+  // A capital letter must be read as a letter, not expanded into a word.
+  // The engine's text analysis reads a lone capital Roman numeral as a number
+  // -- C becomes "one hundred", D "five hundred", L "fifty" -- which is both
+  // wrong and much longer than the letter, so comparing the two spellings of
+  // the same letter catches it without needing to transcribe anything.
+  printf("\n--- capitals must be letters, not numbers or words ---\n");
+  for (wchar_t c = L'A'; c <= L'Z'; c++) {
+    wchar_t xu[64], xl[64], pu[MAX_PATH], pl[MAX_PATH];
+    _snwprintf_s(xu, _TRUNCATE, L"<spell>%c</spell>", c);
+    _snwprintf_s(xl, _TRUNCATE, L"<spell>%c</spell>", (wchar_t)(c - L'A' + L'a'));
+    _snwprintf_s(pu, _TRUNCATE, L"%s\\cap-%c-upper.wav", outdir.c_str(), c);
+    _snwprintf_s(pl, _TRUNCATE, L"%s\\cap-%c-lower.wav", outdir.c_str(), c);
+    const long up = render_frames(voice, xu, pu);
+    const long lo = render_frames(voice, xl, pl);
+    if (up <= 0 || lo <= 0) {
+      printf("  FAIL '%lc': nothing rendered (upper %ld, lower %ld)\n", c, up,
+             lo);
+      g_fail++;
+      continue;
+    }
+    const double ratio = (double)up / (double)lo;
+    if (ratio > 1.25) {
+      printf("  FAIL '%lc' upper %.2fs vs lower %.2fs (x%.2f) -- the capital "
+             "is being expanded\n",
+             c, up / 11025.0, lo / 11025.0, ratio);
+      g_fail++;
+    } else {
+      printf("  ok   '%lc' upper %.2fs lower %.2fs (x%.2f)\n", c, up / 11025.0,
+             lo / 11025.0, ratio);
+      g_pass++;
+    }
+  }
 
   // And a normal sentence must still be a sentence.
   printf("\n--- ordinary speech still works ---\n");
