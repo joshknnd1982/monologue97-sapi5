@@ -106,6 +106,25 @@ std::string spell_out(const std::string &text) {
   return out;
 }
 
+// Indices into mono::kParams, which is ordered Speed, Pitch, Volume, ...
+const int kSpeedIdx = 0;
+const int kPitchIdx = 1;
+
+// Shift one engine parameter by a SAPI adjustment. SAPI expresses rate and
+// pitch on a -10..+10 scale, which is spread across the parameter's own range
+// so that the extremes of the host's slider reach the extremes of the engine.
+int adjust(int idx, int base, long sapi_adj) {
+  if (!sapi_adj) return base;
+  const int lo = mono::kParams[idx].lo, hi = mono::kParams[idx].hi;
+  if (sapi_adj < -10) sapi_adj = -10;
+  if (sapi_adj > 10) sapi_adj = 10;
+  // Rounded, not truncated: the engine's ranges are small enough that
+  // truncation would waste steps and leave part of the host's slider inert.
+  const double step = (double)sapi_adj * (hi - lo) / 20.0;
+  const int delta = (int)(step < 0 ? step - 0.5 : step + 0.5);
+  return mono::clamp_param(idx, base + delta);
+}
+
 std::string narrow_ansi(const std::wstring &w) {
   if (w.empty()) return std::string();
   int n = WideCharToMultiByte(CP_ACP, 0, w.c_str(), (int)w.size(), nullptr, 0,
@@ -282,20 +301,19 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
     params = mono::default_params();
   }
 
-  // Host rate/volume on top of the baseline.
-  long rate = 0;
-  USHORT volume = 100;
-  pSite->GetRate(&rate);
-  pSite->GetVolume(&volume);
-  if (rate) {
-    const int idx = 0;  // Speed is kParams[0]
-    const int lo = mono::kParams[idx].lo, hi = mono::kParams[idx].hi;
-    int v = params.v[idx] + (int)rate * (hi - lo) / 20;
-    params.v[idx] = mono::clamp_param(idx, v);
-  }
+  // The voice-level base settings. Rate and volume have one of these; pitch
+  // does not -- there is no ISpTTSEngineSite::GetPitch, and SAPI delivers pitch
+  // *only* per fragment as State.PitchAdj.MiddleAdj (set by <pitch absmiddle>,
+  // which is exactly how NVDA adjusts pitch). Reading only GetRate/GetVolume
+  // therefore moves rate and volume correctly and ignores pitch completely.
+  long base_rate = 0;
+  USHORT base_volume = 100;
+  pSite->GetRate(&base_rate);
+  pSite->GetVolume(&base_volume);
+
   SinkState st;
   st.site = pSite;
-  st.gain = volume >= 100 ? 1.0 : (volume / 100.0);
+  st.gain = 1.0;  // set per fragment below
   st.abort = false;
   st.first_block = -1;
   st.samples = 0;
@@ -339,7 +357,23 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
     }
     if (ansi.empty()) continue;
 
-    if (!client_.speak(font, params, ansi, &MonologueEngine::sink, &st, &err)) {
+    // Rate, pitch and volume are all per-fragment: SAPI combines the voice's
+    // base setting with any <rate>/<pitch>/<volume> tag and reports the result
+    // in this fragment's state, so they are applied here rather than once per
+    // utterance.
+    mono::Params fp = params;
+    fp.v[kSpeedIdx] =
+        adjust(kSpeedIdx, fp.v[kSpeedIdx], base_rate + f->State.RateAdj);
+    fp.v[kPitchIdx] =
+        adjust(kPitchIdx, fp.v[kPitchIdx], f->State.PitchAdj.MiddleAdj);
+
+    // Volume is applied as software gain rather than through the engine's own
+    // Volume parameter, which has only ten steps and clips across the top half.
+    double vol = (base_volume >= 100 ? 100.0 : (double)base_volume) / 100.0;
+    if (f->State.Volume <= 100) vol *= f->State.Volume / 100.0;
+    st.gain = vol;
+
+    if (!client_.speak(font, fp, ansi, &MonologueEngine::sink, &st, &err)) {
       MONO_LOG("speak failed: %s", err.c_str());
       return SPERR_ENGINE_BUSY;
     }

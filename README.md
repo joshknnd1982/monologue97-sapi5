@@ -102,7 +102,7 @@ where 0 % is the engine's minimum and 100 % its maximum.
 | Parameter | ID | Engine range | Default | What it does |
 | --- | --- | --- | --- | --- |
 | Speed | 2 | −5 … **14** | 5 | Linear duration scale. Higher is faster. |
-| Pitch | 1 | −5 … 15 | 5 | Fundamental frequency. Measured 77 Hz at 0 %, 119 Hz at 50 %, 200 Hz at 100 %. |
+| Pitch | 1 | **0 … 10** | 5 | Fundamental frequency. Measured 77 Hz at 0 %, 119 Hz at 50 %, 200 Hz at 100 %. |
 | Volume | 0 | 0 … 9 | 5 | Output level. 0 is silent. |
 | Brightness | 23 | −30 … 30 | −5 | Spectral tilt / vocal-tract brightness. |
 | Emphasis | 24 | 1 … 99 | 50 | Prosodic range — how much pitch moves across a phrase. |
@@ -112,19 +112,45 @@ where 0 % is the engine's minimum and 100 % its maximum.
 | Whispery | 28 | 0 / 1 | off | Whispered voice. |
 | Creaky | 29 | 0 / 1 | off | Creaky / vocal-fry quality. |
 
-Two ranges are deliberately narrower than what the engine will accept:
+Two ranges are deliberately narrower than what `SetSpeechParameter` will accept,
+because part of what it accepts does nothing — or worse:
 
 - **Speed maxes out at 14, not 15.** Speed is a linear duration scale that
   reaches exactly zero at 15: the engine accepts the value and then renders
   *nothing at all*. Publishing 15 as "100 %" would let a user silence their own
   screen reader.
+- **Pitch is 0–10, not −5–15.** Measuring F0 across the accepted range shows the
+  engine only responds between 0 and 10. Every value at or below 0 renders
+  byte-identically at 76 Hz, and 10 upwards all sit at 200 Hz. Publishing the
+  accepted range left half of a host's pitch slider inert.
 - **Volume defaults to 5, not 9.** The engine's output is already hot — at
   Volume 9 roughly 14 % of samples clip, while 5 is clean. The louder half of
   the range stays reachable for anyone who wants it.
 
-SAPI's own rate and volume still work on top of all this: a host's rate slider
-shifts Speed around the configured baseline, and a host's volume is applied as
-software gain (smooth, and it never clips, unlike the engine's ten-step Volume).
+### How the host's rate, pitch and volume arrive
+
+Worth knowing if you are writing a SAPI5 engine of your own: **SAPI has no
+`ISpTTSEngineSite::GetPitch`.** Rate and volume have voice-level getters, but
+pitch is delivered *only* per fragment, as `SPVTEXTFRAG::State.PitchAdj.MiddleAdj`,
+set from a `<pitch absmiddle="N">` tag — which is exactly how NVDA adjusts it.
+An engine that reads `GetRate`/`GetVolume` and never looks at the fragment state
+will move rate and volume perfectly and ignore pitch completely.
+
+All three are therefore read per fragment and combined with the voice's base
+settings:
+
+| Control | Voice-level base | Per-fragment | Combined as |
+| --- | --- | --- | --- |
+| Rate | `GetRate()` −10…10 | `State.RateAdj` −10…10 | sum, spread over Speed's range |
+| Pitch | *(none exists)* | `State.PitchAdj.MiddleAdj` −10…10 | spread over Pitch's range |
+| Volume | `GetVolume()` 0…100 | `State.Volume` 0…100 | multiplied, applied as software gain |
+
+Volume is applied as gain here rather than through the engine's own Volume
+parameter, which has only ten steps and clips across the top half.
+
+`tools/prosody_test.cpp` measures all three from the rendered audio — F0 for
+pitch, duration for rate, peak for volume — so a control that silently stops
+working cannot pass.
 
 ---
 

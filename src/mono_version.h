@@ -8,11 +8,11 @@
 #pragma once
 
 #define MONO_VER_MAJOR 1
-#define MONO_VER_MINOR 2
+#define MONO_VER_MINOR 3
 #define MONO_VER_PATCH 0
 #define MONO_VER_BUILD 0
 
-#define MONO_VER_STRING "1.2.0"
+#define MONO_VER_STRING "1.3.0"
 #define MONO_VER_COMMA MONO_VER_MAJOR, MONO_VER_MINOR, MONO_VER_PATCH, MONO_VER_BUILD
 
 #define MONO_PRODUCT "Monologue 97 SAPI5"

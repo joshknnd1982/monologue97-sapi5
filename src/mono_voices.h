@@ -99,13 +99,18 @@ struct ParamSpec {
 //          scale that reaches exactly zero at 15, so 15 is accepted and then
 //          renders *nothing at all*. Publishing 15 as "100 %" would let a user
 //          silence their own screen reader, so the usable maximum is 14.
+//   Pitch  SetSpeechParameter accepts -5..15, but measuring F0 across the whole
+//          range shows it only responds between 0 and 10: every value at or
+//          below 0 renders byte-identically (76 Hz), and 10 and above all sit
+//          at 200 Hz. Publishing the accepted range would leave half of a
+//          host's pitch slider doing nothing at all.
 //   Volume 0..9 is honoured in full, but the engine's output is already hot:
 //          at 9 about 14 % of samples clip, while 5 is clean. 5 is therefore
 //          the default; the louder half of the range stays reachable for
 //          anyone who wants it.
 inline const ParamSpec kParams[] = {
     {PARAM_SPEED, "Speed", "Speed", -5, 14, 5, false},
-    {PARAM_PITCH, "Pitch", "Pitch", -5, 15, 5, false},
+    {PARAM_PITCH, "Pitch", "Pitch", 0, 10, 5, false},
     {PARAM_VOLUME, "Volume", "Volume", 0, 9, 5, false},
     {PARAM_BRIGHTNESS, "Brightness", "Brightness", -30, 30, -5, false},
     {PARAM_EMPHASIS, "Emphasis", "Emphasis", 1, 99, 50, false},

@@ -8,7 +8,7 @@
 ; Expects the staged tree in output\ (see build_all.bat).
 
 #define AppName        "Monologue 97 SAPI5"
-#define AppVersion     "1.2.0"
+#define AppVersion     "1.3.0"
 #define AppPublisher   "Josh Kennedy"
 #define AppURL         "https://github.com/joshknnd1982/monologue97-sapi5"
 #define ConfigExe      "Monologue97Config.exe"

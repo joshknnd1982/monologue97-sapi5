@@ -52,6 +52,13 @@ add_executable(loopback tools/loopback.cpp)
 target_link_libraries(loopback PRIVATE ole32 oleaut32 sapi user32)
 set_target_properties(loopback PROPERTIES OUTPUT_NAME "loopback_${MONO_ARCH}")
 
+# Prosody regression: pitch reaches an engine only through the fragment state,
+# so it is easy to ignore without noticing. Measures F0, duration and level.
+add_executable(prosody_test tools/prosody_test.cpp)
+target_link_libraries(prosody_test PRIVATE ole32 oleaut32 sapi user32 advapi32)
+set_target_properties(prosody_test PROPERTIES
+  OUTPUT_NAME "prosody_test_${MONO_ARCH}")
+
 # Character-navigation regression: NVDA speaks single characters through
 # <spell>, which arrives as SPVA_SpellOut, not SPVA_Speak.
 add_executable(spell_test tools/spell_test.cpp)
