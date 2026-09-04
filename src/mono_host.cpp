@@ -110,6 +110,21 @@ bool pcm_sink(const int16_t *samples, size_t count, void *user) {
 
 DWORD WINAPI engine_thread(LPVOID) {
   MONO_LOG("engine thread %lu started", GetCurrentThreadId());
+
+  // This thread is on the critical path between a keystroke and the user
+  // hearing it, and a screen reader itself runs above normal. Without this the
+  // helper is just another background process and loses the CPU to whatever
+  // the user is actually doing, exactly when responsiveness matters most.
+  SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+
+  // Open the default voice now rather than on the first keystroke: OpenSpeech
+  // loads and validates all 21 speech-font dlls.
+  std::string err;
+  if (g_engine->select_font("ENMH", &err))
+    MONO_LOG("pre-warmed the default voice");
+  else
+    MONO_LOG("pre-warm failed: %s", err.c_str());
+
   for (;;) {
     WaitForSingleObject(g_work_ready, INFINITE);
     if (g_quit) break;
@@ -234,6 +249,12 @@ bool make_pipe_sd(SECURITY_ATTRIBUTES *sa, PSECURITY_DESCRIPTOR *sd) {
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   mono::log_init("host");
+
+  // Above normal, for the same reason as the engine thread: this process sits
+  // between a keypress and the sound, so it must not be scheduled like a
+  // background task. Not realtime or high -- a 1997 synthesizer has no business
+  // outranking the audio stack.
+  SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 
   // Engine directory: the helper lives next to it.
   wchar_t exe[MAX_PATH];

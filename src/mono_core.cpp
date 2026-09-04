@@ -17,6 +17,8 @@
 
 #include <stdio.h>
 
+#include <vector>
+
 #include "mono_log.h"
 
 namespace mono {
@@ -63,6 +65,78 @@ bool patch_import(HMODULE mod, const char *dll, const char *fn, void *repl) {
   }
   return false;
 }
+
+// --- silence gate ---------------------------------------------------------
+//
+// The engine pads every utterance: roughly 55 ms of silence before the first
+// phoneme and 40-55 ms after the last one. On a whole sentence that is
+// invisible, but a screen reader speaking one character per keystroke gets an
+// utterance that is more than half dead air -- "a" is 190 ms of audio for 90 ms
+// of speech -- and that padding is paid again on every keypress while arrowing.
+//
+// This drops the leading run of silence and withholds the trailing one. Silence
+// *between* words is kept: it is only emitted once more speech follows it, and
+// only dropped when the utterance ends there.
+const size_t kFrameSamples = 110;   // ~10 ms at 11025 Hz
+const int kSilenceLevel = 300;      // |sample| below this counts as silence
+const size_t kPreRollFrames = 1;    // keep 10 ms before the first speech so a
+                                    // plosive onset is never clipped
+
+bool frame_is_loud(const int16_t *p, size_t n) {
+  for (size_t i = 0; i < n; i++)
+    if (p[i] >= kSilenceLevel || p[i] <= -kSilenceLevel) return true;
+  return false;
+}
+
+class SilenceGate {
+ public:
+  SilenceGate(PcmSink sink, void *user) : sink_(sink), user_(user) {}
+
+  // Returns false if the sink asked to stop.
+  bool feed(const int16_t *s, size_t n) {
+    pending_.insert(pending_.end(), s, s + n);
+    const size_t frames = pending_.size() / kFrameSamples;
+    if (frames == 0) return true;
+
+    // Index of the last frame in `pending_` that contains speech.
+    long last_loud = -1;
+    for (size_t f = 0; f < frames; f++)
+      if (frame_is_loud(&pending_[f * kFrameSamples], kFrameSamples))
+        last_loud = (long)f;
+    if (last_loud < 0) {
+      // All silence so far. Before any speech it can be discarded outright;
+      // after speech it has to be held, in case more words follow.
+      if (!started_) pending_.clear();
+      return true;
+    }
+
+    size_t from = 0;
+    if (!started_) {
+      long first_loud = 0;
+      while (first_loud < (long)frames &&
+             !frame_is_loud(&pending_[first_loud * kFrameSamples],
+                            kFrameSamples))
+        first_loud++;
+      const long roll = first_loud - (long)kPreRollFrames;
+      from = (size_t)(roll > 0 ? roll : 0) * kFrameSamples;
+      started_ = true;
+    }
+    const size_t to = (size_t)(last_loud + 1) * kFrameSamples;
+    bool go = true;
+    if (to > from && sink_) go = sink_(&pending_[from], to - from, user_);
+    pending_.erase(pending_.begin(), pending_.begin() + to);
+    return go;
+  }
+
+  // Whatever is still held back is trailing silence, so it is dropped.
+  size_t dropped() const { return pending_.size(); }
+
+ private:
+  PcmSink sink_;
+  void *user_;
+  std::vector<int16_t> pending_;
+  bool started_ = false;
+};
 
 std::string narrow(const std::wstring &w) {
   if (w.empty()) return std::string();
@@ -299,12 +373,13 @@ bool Engine::render(const std::string &text, const Params &p, PcmSink sink,
   static int16_t buf[kBlockSamples];
   bool cancelled = false;
   long total = 0;
+  SilenceGate gate(sink, user);
   for (;;) {
     int got = api_->GetPCMdata(active_, buf, (int)sizeof buf);
     if (got <= 0) break;
     size_t samples = (size_t)got / sizeof(int16_t);
     total += (long)samples;
-    if (sink && !sink(buf, samples, user)) {
+    if (!gate.feed(buf, samples)) {
       cancelled = true;
       break;
     }
@@ -314,8 +389,9 @@ bool Engine::render(const std::string &text, const Params &p, PcmSink sink,
 
   api_->CloseBackend(active_);
   api_->FreePhoneticsCommandStream(cmd);
-  MONO_LOG("rendered %u chars -> %ld samples%s", (unsigned)text.size(), total,
-           cancelled ? " (cancelled)" : "");
+  MONO_LOG("rendered %u chars -> %ld samples (%u trimmed as padding)%s",
+           (unsigned)text.size(), total, (unsigned)gate.dropped(),
+           cancelled ? " cancelled" : "");
   return true;
 }
 

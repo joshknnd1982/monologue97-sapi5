@@ -169,7 +169,47 @@ helper as well costs one process hop but buys the thing that matters most for a
 screen-reader voice: **a fault or a modal dialog inside 1997 code can no longer
 take down the screen reader hosting it.**
 
-Measured latency after the helper is warm is **0–32 ms** to first audio.
+### Latency
+
+Measured with `QueryPerformanceCounter` and with WASAPI loopback capture of the
+real audio endpoint — SAPI's own `SPEI_START_INPUT_STREAM` event fires when SAPI
+starts consuming the stream, not when a sample reaches the speakers, and
+under-reports by around 60 ms.
+
+| Stage | Cost |
+| --- | --- |
+| `TextToCmd` + first PCM block | 0.5–0.9 ms |
+| Whole utterance rendered (one character) | ~1 ms |
+| Pipe round trip to the helper | ~0.5 ms |
+| `ISpTTSEngine::Speak` returns | ~2 ms |
+| **Keypress to audible sound (x86 and x64)** | **~90 ms mean** |
+
+Everything this project controls adds up to about 4 ms; the remaining ~86 ms is
+SAPI's audio object and the Windows audio stack, which the engine never sees.
+
+The one real saving available was the engine's own padding. Every utterance
+arrives with roughly 55 ms of silence before the first phoneme and 40–55 ms
+after the last — invisible in a sentence, but more than half the audio when a
+screen reader speaks one character per keystroke, and paid again on every
+keypress while arrowing. A silence gate drops the leading run and withholds the
+trailing one (silence *between* words is kept, and only discarded if the
+utterance ends there):
+
+| Utterance | Before | After |
+| --- | --- | --- |
+| `"a"` | 190 ms | 110 ms |
+| `"hello"` | 449 ms | 309 ms |
+| A full sentence | 2594 ms | 2504 ms |
+
+Two things were measured and deliberately **not** shipped: offering SAPI 22050
+or 44100 Hz and upsampling in the wrapper, in case 11025 Hz was awkward for a
+48 kHz endpoint (no difference — 88–94 ms mean either way across repeated runs),
+and any form of output-rate conversion in general. The helper and its engine
+thread do run above normal priority, since they sit between a keypress and a
+sound.
+
+`tools/bench.cpp`, `tools/loopback.cpp` and `tools/charfuzz.cpp` reproduce all
+of these numbers.
 
 ### Notes from reverse-engineering the engine
 

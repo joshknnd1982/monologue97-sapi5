@@ -36,6 +36,11 @@ static LONG g_locks = 0;
 
 namespace {
 
+// Output stays at the engine's own 11025 Hz. Offering SAPI 22050 or 44100 and
+// upsampling here was measured against WASAPI loopback in case 11025 was an
+// awkward rate for a 48 kHz endpoint: it made no difference (88-94 ms mean and
+// 95-112 ms worst either way, across repeated runs), so the resampler was not
+// worth shipping.
 std::string narrow_ansi(const std::wstring &w) {
   if (w.empty()) return std::string();
   int n = WideCharToMultiByte(CP_ACP, 0, w.c_str(), (int)w.size(), nullptr, 0,
@@ -114,10 +119,18 @@ class MonologueEngine : public ISpTTSEngine, public ISpObjectWithToken {
   }
 
   // --- ISpTTSEngine ---
-  STDMETHODIMP GetOutputFormat(const GUID *, const WAVEFORMATEX *,
+  STDMETHODIMP GetOutputFormat(const GUID *pTargetFmtId,
+                               const WAVEFORMATEX *pTarget,
                                GUID *pOutputFormatId,
                                WAVEFORMATEX **ppCoMemOutput) override {
     if (!pOutputFormatId || !ppCoMemOutput) return E_POINTER;
+    if (pTarget)
+      MONO_LOG("GetOutputFormat: host wants %luHz %ubit %uch (tag %u)",
+               pTarget->nSamplesPerSec, pTarget->wBitsPerSample,
+               pTarget->nChannels, pTarget->wFormatTag);
+    else
+      MONO_LOG("GetOutputFormat: host expressed no preference");
+
     WAVEFORMATEX *wfx = (WAVEFORMATEX *)CoTaskMemAlloc(sizeof(WAVEFORMATEX));
     if (!wfx) return E_OUTOFMEMORY;
     wfx->wFormatTag = WAVE_FORMAT_PCM;
@@ -141,7 +154,8 @@ class MonologueEngine : public ISpTTSEngine, public ISpObjectWithToken {
     ISpTTSEngineSite *site;
     double gain;
     bool abort;
-    ULONGLONG written;  // samples handed to SAPI, for the event stream
+    double first_block;  // <0 until the first block is handed to SAPI
+    size_t samples;      // total handed over, for the timing log
   };
 
   static bool sink(const int16_t *pcm, size_t count, void *user);
@@ -150,6 +164,7 @@ class MonologueEngine : public ISpTTSEngine, public ISpObjectWithToken {
   ISpObjectToken *token_ = nullptr;
   char font_[16] = "ENMH";
   bool custom_ = false;
+  int out_rate_ = mono::kSampleRate;
   mono::Client client_;
 };
 
@@ -163,15 +178,18 @@ bool MonologueEngine::sink(const int16_t *pcm, size_t count, void *user) {
     return false;
   }
 
+  if (st->first_block < 0) st->first_block = 0;  // marked by the caller's clock
+  st->samples += count;
+
   const int16_t *out = pcm;
   std::vector<int16_t> scaled;
   if (st->gain < 0.999) {
     // SAPI volume as software gain. The engine's own Volume parameter is
     // coarse (ten steps, and the top half just clips), so the host's 0..100
     // slider is applied here instead, where it is smooth and never distorts.
-    scaled.resize(count);
-    for (size_t i = 0; i < count; i++)
-      scaled[i] = (int16_t)(pcm[i] * st->gain);
+    scaled.assign(pcm, pcm + count);
+    for (size_t i = 0; i < scaled.size(); i++)
+      scaled[i] = (int16_t)(scaled[i] * st->gain);
     out = scaled.data();
   }
 
@@ -214,7 +232,16 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
   st.site = pSite;
   st.gain = volume >= 100 ? 1.0 : (volume / 100.0);
   st.abort = false;
-  st.written = 0;
+  st.first_block = -1;
+  st.samples = 0;
+
+  // Timed with QPC, not GetTickCount, whose 15.6 ms tick would report a flat
+  // "15 ms" for everything interesting here. This is what to read out of the
+  // log if the voice still feels slow in a real screen reader: it separates
+  // our own cost from whatever the host's audio stack adds after us.
+  LARGE_INTEGER qpf, t0;
+  QueryPerformanceFrequency(&qpf);
+  QueryPerformanceCounter(&t0);
 
   std::string err;
   for (const SPVTEXTFRAG *f = pFrags; f; f = f->pNext) {
@@ -236,6 +263,14 @@ STDMETHODIMP MonologueEngine::Speak(DWORD, REFGUID, const WAVEFORMATEX *,
     }
     if (st.abort) break;
   }
+
+  LARGE_INTEGER t1;
+  QueryPerformanceCounter(&t1);
+  const double ms = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 /
+                    (double)qpf.QuadPart;
+  MONO_LOG("Speak: %u samples (%.0f ms of audio) handed to SAPI in %.2f ms%s",
+           (unsigned)st.samples, st.samples * 1000.0 / mono::kSampleRate, ms,
+           st.abort ? " (aborted)" : "");
   return S_OK;
 }
 

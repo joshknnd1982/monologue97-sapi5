@@ -45,6 +45,13 @@ set_target_properties(monologue_sapi PROPERTIES
 mono_version(monologue_sapi "Monologue 97 SAPI5 text-to-speech engine"
              "monologue_sapi_${MONO_ARCH}.dll")
 
+# Ground-truth latency: WASAPI loopback timing of what actually reaches the
+# speakers, which SAPI's own events under-report by ~60 ms. Built for both
+# architectures, because 64-bit hosts take an extra process hop.
+add_executable(loopback tools/loopback.cpp)
+target_link_libraries(loopback PRIVATE ole32 oleaut32 sapi user32)
+set_target_properties(loopback PROPERTIES OUTPUT_NAME "loopback_${MONO_ARCH}")
+
 # --- end-to-end SAPI test harness (both architectures) ---------------------
 add_executable(sapi_test tools/sapi_test.cpp)
 target_link_libraries(sapi_test PRIVATE ole32 oleaut32 sapi user32 advapi32)
@@ -71,6 +78,14 @@ if(MONO_ARCH STREQUAL "x86")
   target_include_directories(Monologue97Config PRIVATE src)
   mono_version(Monologue97Config "Monologue 97 configuration utility"
                "Monologue97Config.exe")
+
+  # Latency measurement, engine-direct and through the helper.
+  add_executable(bench tools/bench.cpp src/mono_core.cpp src/mono_client.cpp)
+  target_link_libraries(bench PRIVATE advapi32 user32 ole32 oleaut32 sapi)
+
+  # Robustness: no single character may take the helper down.
+  add_executable(charfuzz tools/charfuzz.cpp src/mono_client.cpp)
+  target_link_libraries(charfuzz PRIVATE advapi32 user32)
 
   # Accessibility verification for the configuration utility.
   add_executable(a11y_check tools/a11y_check.cpp)
