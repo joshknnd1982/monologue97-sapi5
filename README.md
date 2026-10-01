@@ -469,5 +469,6 @@ preservation and accessibility use: the product has been unsold and unsupported
 for decades, its speech patents expired long ago, and no rights holder has been
 locatable.
 
-See [LICENSE.txt](LICENSE.txt) for the full terms — including how to ask for the
-engine files to be removed if you hold those rights.
+See [LICENSE.txt](LICENSE.txt) for the licence, and [NOTICE.md](NOTICE.md) for the full
+terms on the engine files — including how to ask for them to be removed if you hold
+those rights.
